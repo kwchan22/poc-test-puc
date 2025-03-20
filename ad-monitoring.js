@@ -42,9 +42,11 @@ function runTWCMonitoring() {
       }
     }
 
+    let reason = "";
     if (data.type === "content-load-error") {
+      // there was a request error
       logAppEvent = true;
-      logPayload.reason = data.message;
+      reason = data.message;
       logPayload.networkReqError = data.networkReqError;
     } else {
       // Check for prebid cache error
@@ -54,11 +56,12 @@ function runTWCMonitoring() {
 
       if (fatalNetworkReqError) {
         logAppEvent = true; // tells app to log this event
-        logPayload.networkReqError = fatalNetworkReqError;
+        logPayload.networkReqError = `${fatalNetworkReqError.code}: ${fatalNetworkReqError.src}`;
+        reason = fatalNetworkReqError.message;
       }
     }
 
-    data.reason = fatalNetworkReqError ? fatalNetworkReqError : '';
+    data.reason = reason;
     data.errorNetworkRequests = errorNetworkRequests;
     data.networkRequestInProgress = networkRequestInProgress;
     data.consoleErrors = consoleErrors;
@@ -100,16 +103,17 @@ function runTWCMonitoring() {
               networkRequestInProgress.push(e.src);
             }
             let mark = false
+            const loadTimeThreshold = 2000;
             const iframeCheckJob = setTimeout(() => {
               //twcMonitoring.sendAppEvent({ message: `iFrame is taking too long to load: ${e.src}`, type: "content-load" });
               mark = true;
-            }, 2000);
+            }, loadTimeThreshold);
             e.addEventListener('load', () => {
               clearTimeout(iframeCheckJob);
               networkRequestInProgress = networkRequestInProgress.filter((networkReq) => networkReq != e.src);
               console.info(`===MutationObserver: ${e.tagName} loaded: src: ${e.src}`)
               if (mark && e.src.match(/amazon|prebid/gi) !== null) {
-                twcMonitoring.sendAppEvent({ message: `iFrame loaded after timeout: ${e.src}`, type: "content-load-error", networkReqError: e.src });
+                twcMonitoring.sendAppEvent({ message: `iFrame loaded after ${loadTimeThreshold} seconds: ${e.src}`, type: "content-load-error", networkReqError: e.src });
               }
             });
           });
@@ -196,9 +200,10 @@ function runTWCMonitoring() {
   }
 
   function logNetworkErrorRequest(src, code, message) {
-    const strCode = code + ""
-    if (errorNetworkRequests.find((n) => n.src === src)) return;
-    else errorNetworkRequests.push({ src, strCode, message });
+   if (errorNetworkRequests.find((n) => n.src === src)) return;
+    else errorNetworkRequests.push({ src, 
+      code: "" + code, 
+      message });
   }
 
   let oldXHROpen = window.XMLHttpRequest.prototype.open;
