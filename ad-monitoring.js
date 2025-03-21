@@ -227,7 +227,7 @@ function runTWCMonitoring() {
           } catch (err) {
             json = { message: this.responseText }
           }
-          logNetworkErrorRequest(ur, this.statue, json.message);
+          logNetworkErrorRequest(url, this.statue, json.message);
         }
         networkRequestInProgress = networkRequestInProgress.filter(url => url !== url)
         console.log(`remove completed request: ${this.readyState} ${url}`, networkRequestInProgress);
@@ -297,5 +297,5 @@ function runTWCMonitoring() {
   twcMonitoring.logNetworkErrorRequest = logNetworkErrorRequest;
 
 };
-console.log('runTWCMonitoring...');
+console.log('runTWCMonitoring.....');
 runTWCMonitoring();
