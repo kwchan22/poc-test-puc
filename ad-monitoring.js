@@ -200,10 +200,12 @@ function runTWCMonitoring() {
   }
 
   function logNetworkErrorRequest(src, code, message) {
-   if (errorNetworkRequests.find((n) => n.src === src)) return;
-    else errorNetworkRequests.push({ src, 
-      code: "" + code, 
-      message });
+    if (errorNetworkRequests.find((n) => n.src === src)) return;
+    else errorNetworkRequests.push({
+      src,
+      code: "" + code,
+      message
+    });
   }
 
   let oldXHROpen = window.XMLHttpRequest.prototype.open;
@@ -292,6 +294,7 @@ function runTWCMonitoring() {
   twcMonitoring.mutationCallback = mutationCallback;
   twcMonitoring.networkRequestInProgress = networkRequestInProgress;
   twcMonitoring.errorNetworkRequests = errorNetworkRequests;
+  twcMonitoring.logNetworkErrorRequest = logNetworkErrorRequest;
 
 };
 console.log('runTWCMonitoring.....');
