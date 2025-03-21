@@ -1,0 +1,15 @@
+{
+  "name": "poc-test-puc",
+  "version": "0.0.1",
+  "description": "POC",
+  "main": "semver.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kwchan22/poc-test-puc/poc-test-puc.git"
+  },
+  "keywords": [
+    "spec"
+  ],
+  "author": "",
+  "license": "ISC"
+}
