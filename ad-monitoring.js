@@ -297,5 +297,5 @@ function runTWCMonitoring() {
   twcMonitoring.logNetworkErrorRequest = logNetworkErrorRequest;
 
 };
-console.log('runTWCMonitoring.....');
+console.log('runTWCMonitoring...');
 runTWCMonitoring();
