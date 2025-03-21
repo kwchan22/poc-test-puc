@@ -1,12 +1,12 @@
 function runTWCMonitoring() {
-  window.twcMonitoring = {
-    adInfoObj: {
-      creativeId: "%ecid!",
-      lineItemId: "%eaid!",
-      height: '%%HEIGHT%%',
-      width: '%%WIDTH%%'
-    }
-  };
+  // window.twcMonitoring = {
+  //   adInfoObj: {
+  //     creativeId: "%ecid!",
+  //     lineItemId: "%eaid!",
+  //     height: '%%HEIGHT%%',
+  //     width: '%%WIDTH%%'
+  //   }
+  // };
   const iasPixels = [];
   const errorNetworkRequests = [];
   let networkRequestInProgress = [];
