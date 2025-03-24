@@ -1,12 +1,17 @@
+window.twcMonitoring = {
+  adInfoObj: {
+    creativeId: "%ecid!",
+    lineItemId: "%eaid!",
+    height: '%%HEIGHT%%',
+    width: '%%WIDTH%%'
+  },
+  amznInfo: {
+    slots: "%%PATTERN:amznslots%%", 
+    bidId: "%%PATTERN:amzn_b%%", 
+    skadn: "%%PATTERN:amzn_skadn%%"
+  }
+};
 function runTWCMonitoring() {
-  // window.twcMonitoring = {
-  //   adInfoObj: {
-  //     creativeId: "%ecid!",
-  //     lineItemId: "%eaid!",
-  //     height: '%%HEIGHT%%',
-  //     width: '%%WIDTH%%'
-  //   }
-  // };
   const iasPixels = [];
   const errorNetworkRequests = [];
   let networkRequestInProgress = [];
@@ -15,61 +20,112 @@ function runTWCMonitoring() {
   const mutationConfig = { attributes: false, childList: true, subtree: true };
 
   function sendAppEvent(data) {
-    let logAppEvent = false;
+    let logAppEvent = data.logAppEvent ?? false;
     let logPayload = {}
+    let errMsg = "";
     if (typeof ucTagData !== "undefined") {
-      data.ucTag = ucTagData;
-      logPayload.adId = ucTagData.adId
-      logPayload.uuid = ucTagData.uuid
-      logPayload.size = ucTagData.size
-      logPayload.winbidid = ucTagData.winbidid
-      logPayload.hbPb = ucTagData.hbPb
-    }
-    if (typeof Goog_Omid_SdkImpressionReceived !== "undefined") {
-      data.impressionReceived = Goog_Omid_SdkImpressionReceived;
-    }
-    if (iasPixels.length > 0) {
-      let ias = iasPixels[ iasPixels.length - 1 ];
-      console.log('iasPixels used for appEvent: ', ias);
-      data.ias = { piv: ias.piv, obst: ias.obst };
-      logPayload.iasPiv = ias.piv;
-      logPayload.iasObst = ias.obst;
-    }
-    if (typeof window.$dv !== "undefined") {
-      data.dv = {
-        omidVendorKey: window.$dv.omidVendorKey,
-        renderedImpressions: window.$dv.pubSub?.renderedImpressions
+      // PUC tag data
+      data.ucTag = ucTagData; // send for now but should remove
+      logPayload.prebid = {
+        adId: ucTagData.adId,
+        uuid: ucTagData.uuid,
+        size: ucTagData.size,
+        winbidid: ucTagData.winbidid,
+        hbPb: ucTagData.hbPb,
+        env: ucTagData.env,
+        adServerDomain: ucTagData.adServerDomain
       }
     }
 
-    let reason = "";
+    if (iasPixels.length > 0) {
+      let ias = iasPixels[ iasPixels.length - 1 ]; // take the last which is latest
+      logPayload.ias = {
+        piv: ias.piv,
+        obst: ias.obst
+      }
+    }
+    if (typeof window.$dv !== "undefined" && window.$dv.omidVendorKey) {
+      logPayload.dv = {
+        omidVendorKey: window.$dv.omidVendorKey,
+        renderedImpressions: window.$dv.pubSub? window.$dv.pubSub.renderedImpressions : {}
+      }
+    }
+    if (typeof window._aps !== "undefined") {
+      console.log("Amazon: aps is available")
+      logPayload.amazon = {
+        slots: twcMonitoring.amznInfo? twcMonitoring.amznInfo.slots : "",
+        bidId: twcMonitoring.amznInfo? twcMonitoring.amznInfo.bidId : "",
+        skadn: twcMonitoring.amznInfo? twcMonitoring.amznInfo.skadn : ""
+      }
+      window._aps.forEach((a) => a.store.entries().forEach((entry) => {
+        entry.entries().forEach((histories) => {
+          if (Array.isArray(histories[ 1 ]) && histories[ 1 ].length > 0) {
+            const evts = histories[1].filter(function (h) {
+              return h.type === "maps/ad/render" || h.type === "maps/ad/load";
+            });
+            console.log("Amazon events:", evts);
+            const evt = evts.length > 0 ? evts.pop() : null; // take the last one of the latest
+            if (evt && evt.detail && evt.detail.dtbGlobal) {
+              const dtbGlobal = evt.detail.dtbGlobal;
+              let errorLogs = "";
+              if (dtbGlobal.debugState && dtbGlobal.debugState.logs) {
+                errorLogs = JSON.stringify(dtbGlobal.debugState.logs.filter(function(l) {
+                  return l.match(/abort|error/i) !== null && l.indexOf("pixel evaluation") == -1;
+                }));
+              }
+              console.log("Amazon errorLogs:", errorLogs, dtbGlobal);
+              if (errorLogs !== "" && errorLogs !== "[]") {
+                logAppEvent = true; // there are errors...log it
+              }
+
+              errMsg = "Error loading Amazon ad";
+              Object.assign(logPayload.amazon, {
+                adFinishedLoadingTime: dtbGlobal.btrPerformance ? dtbGlobal.btrPerformance.adFinishedLoadingTime + "" : "",
+                selectedPricePoint: dtbGlobal.selectedPricePoint,
+                lineItemId: dtbGlobal.lineItemId,
+                size: dtbGlobal.size,
+                slotId: dtbGlobal.slotId,
+                slotName: dtbGlobal.slotName,
+                slotType: dtbGlobal.slotType,
+                errorLogs
+              });
+            }
+          }
+        })
+      }));
+    }
+
     if (data.type === "content-load-error") {
-      // there was a request error
+      // there was a request error or took too long to load
       logAppEvent = true;
-      reason = data.message;
-      logPayload.networkReqError = data.networkReqError;
+      errMsg = data.message;
+      logPayload.networkErrorURL = data.networkReqErrorURL;
+      logPayload.networkErrorCode = 0;
+      delete data.message;
+      delete data.networkReqErrorURL;
     } else {
       // Check for prebid cache error
       const fatalNetworkReqError = errorNetworkRequests.find(function (n) {
-        return n.src.match(/rubiconproject.com\/cache\?uuid/gi) !== null
+        return n.src.match(/(rubiconproject.com\/cache\?uuid|amazon)/gi) !== null
       });
 
       if (fatalNetworkReqError) {
         logAppEvent = true; // tells app to log this event
-        logPayload.networkReqError = `${fatalNetworkReqError.code}: ${fatalNetworkReqError.src}`;
-        reason = fatalNetworkReqError.message;
+        logPayload.networkErrorURL = fatalNetworkReqError.src;
+        logPayload.networkErrorCode = fatalNetworkReqError.code;
+        errMsg = fatalNetworkReqError.message;
       }
     }
 
-    data.reason = reason;
+    data.errorMessage = errMsg;
     data.errorNetworkRequests = errorNetworkRequests;
     data.networkRequestInProgress = networkRequestInProgress;
     data.consoleErrors = consoleErrors;
     data.adInfoObj = twcMonitoring.adInfoObj;
     data.logAppEvent = logAppEvent;
     data.logPayload = logPayload;
-    console.info(`******sendAppEvent:: app event with ${data.message} ${data.error}`, data);
-    admob.events.dispatchAppEvent('adWebviewMessage', JSON.stringify(data));
+    console.info(`sendAppEvent:: app event with ${data.message} ${data.error}`, data);
+    admob.events.dispatchAppEvent('adMetricEvent', JSON.stringify(data));
   }
 
   async function waitForInitialization() {
@@ -91,14 +147,14 @@ function runTWCMonitoring() {
     for (const mutation of mutationList) {
       if (mutation.type === "childList") {
         if (mutation.addedNodes.length > 0) {
-          console.log("===MutationObserver: A child node has been added.", mutation);
+          console.log("MutationObserver: A child node has been added.", mutation);
         } else if (mutation.removedNodes.length > 0) {
-          console.log("===MutationObserver: A child node has been removed.", mutation);
+          console.log("MutationObserver: A child node has been removed.", mutation);
         }
         mutation.addedNodes.forEach((e) => {
           if (e.nodeType === 3 || e.nodeName === 'BOUNDTEST' || e.nodeType === 8) return; // skip text nodes
           e?.querySelectorAll('iframe, img').forEach((e) => {
-            if (!e.src || e.src.startsWith('data:') || e.src === '' || e.src.startsWith('about')) return; // skip data urls
+            if (!e.src || e.src === '' || e.src.match(/about:|data:|googlesyndication/i)) return; // skip data urls
             if (!networkRequestInProgress.includes(e.src)) {
               networkRequestInProgress.push(e.src);
             }
@@ -111,9 +167,9 @@ function runTWCMonitoring() {
             e.addEventListener('load', () => {
               clearTimeout(iframeCheckJob);
               networkRequestInProgress = networkRequestInProgress.filter((networkReq) => networkReq != e.src);
-              console.info(`===MutationObserver: ${e.tagName} loaded: src: ${e.src}`)
+              console.info(`MutationObserver: ${e.tagName} loaded: src: ${e.src}`)
               if (mark && e.src.match(/amazon|prebid/gi) !== null) {
-                twcMonitoring.sendAppEvent({ message: `iFrame loaded after ${loadTimeThreshold} seconds: ${e.src}`, type: "content-load-error", networkReqError: e.src });
+                twcMonitoring.sendAppEvent({ message: `iFrame loaded after ${loadTimeThreshold} seconds: ${e.src}`, type: "content-load-error", networkReqErrorURL: e.src });
               }
             });
           });
@@ -128,7 +184,6 @@ function runTWCMonitoring() {
     const perfObserver = new PerformanceObserver(captureNetworkRequest);
     perfObserver.observe({ type: "resource", buffered: true });
 
-    console.info('Document readyState::::', document.readyState);
     if (document.readyState === 'complete') {
       initMonitoring()
     } else {
@@ -151,7 +206,7 @@ function runTWCMonitoring() {
     console.log("captureNetworkRequest: ", list);
     list?.getEntries().forEach(function (entry) {
       if (entry.initiatorType.match(/script|img|iframe/)) {
-        console.log(`*******Performance Observer:: Capture network request: ${entry.name} status: ${entry.responseStatus}`, entry);
+        console.log(`Performance Observer:: Capture network request: ${entry.name} status: ${entry.responseStatus}`, entry);
 
         if (entry.responseStatus >= 300) {
           logNetworkErrorRequest(entry.name, entry.responseStatus);
@@ -183,7 +238,6 @@ function runTWCMonitoring() {
         }
       }
     });
-    console.log("iasPixels: ", iasPixels);
   }
 
   function extractKeyValue(str) {
@@ -208,6 +262,7 @@ function runTWCMonitoring() {
     });
   }
 
+  // Intercept XMLHttpRequest
   let oldXHROpen = window.XMLHttpRequest.prototype.open;
   window.XMLHttpRequest.prototype.open = function (method, url, async, user, password) {
     this._url = url; // Store the URL for later use if needed
@@ -220,14 +275,14 @@ function runTWCMonitoring() {
     this.addEventListener('readystatechange', function () {
       const url = self._url
       if (this.readyState === 4) {
-        if (this.status >= 300 || this.status === 0) { // error
+        if (url.match(/weather\.com/i) === null && (this.status >= 300 || this.status === 0)) { // error
           let json = {}
           try {
             json = JSON.parse(this.responseText); // check if we have a json response
           } catch (err) {
             json = { message: this.responseText }
           }
-          logNetworkErrorRequest(url, this.statue, json.message);
+          logNetworkErrorRequest(url, this.status, json.message);
         }
         networkRequestInProgress = networkRequestInProgress.filter(url => url !== url)
         console.log(`remove completed request: ${this.readyState} ${url}`, networkRequestInProgress);
@@ -241,6 +296,7 @@ function runTWCMonitoring() {
     originalSend.apply(this, args);
   };
 
+  // Intercept Fetch API
   const originalFetch = window.fetch;
   window.fetch = async (...args) => {
     // Request interception
@@ -257,36 +313,42 @@ function runTWCMonitoring() {
 
     networkRequestInProgress = networkRequestInProgress.filter(url => url !== request.url);
 
+    console.log('########request removed:' + request.url + ' ===>' + networkRequestInProgress.join(','));
+
     // Modify response (example: change status)
-    if (response.status >= 300) {
+    if (response.status >= 300 && request.url.match(/weather\.com/i) === null) {
       logNetworkErrorRequest(request.url, response.status, await response.text());
     }
     return response;
   };
 
+  // Intercept console errors
   const originalConsoleError = console.error;
   console.error = function (...args) {
     const data = { type: 'consoleError' }
-    if (typeof args[ 0 ] === 'string') {
-      data.message = args[ 0 ];
-    } else if (typeof args[ 0 ] === 'object') {
-      data.message = args[ 0 ].message || args[ 0 ].msg || args[ 0 ];
+    if (typeof args[0] === 'string') {
+      data.message = args[0];
+    } else if (typeof args[0] === 'object') {
+      data.message = args[0].message || args[0].msg || JSON.stringify(args[0]);
     }
     consoleErrors.push(data.message)
     console.warn("console.error intercepted: " + data.message, args);
     originalConsoleError.apply(console, args);
   }
 
+  // Start monitoring init
   startup()
 
   waitForInitialization().then(() => {
-    console.info('TWCMonitoring is initialized....' + (typeof Goog_Omid_SdkImpressionReceived) + '  omid: ' + window.Goog_Omid_SdkImpressionReceived);
+    console.info('TWCMonitoring is initialized....');
+    let impressionCheckedDuration = 0;
     const job = setInterval(() => {
       if (typeof Goog_Omid_SdkImpressionReceived !== 'undefined' && Goog_Omid_SdkImpressionReceived === true) {
         sendAppEvent({ message: 'OMID Impression Received', type: 'omid' });
         clearInterval(job);
       }
-    }, 100)
+      impressionCheckedDuration += 100;
+    }, 10)
   });
 
   twcMonitoring.sendAppEvent = sendAppEvent;
@@ -295,7 +357,11 @@ function runTWCMonitoring() {
   twcMonitoring.networkRequestInProgress = networkRequestInProgress;
   twcMonitoring.errorNetworkRequests = errorNetworkRequests;
   twcMonitoring.logNetworkErrorRequest = logNetworkErrorRequest;
+  twcMonitoring.iasPixels = iasPixels;
 
 };
-console.log('runTWCMonitoring.....');
-runTWCMonitoring();
+window.twcMonitoringDisabled = "%%PATTERN:fpd%%"
+console.log('runTWCMonitoring.....' + window.twcMonitoringDisabled);
+if (window.twcMonitoringDisabled != "disabled") {
+  runTWCMonitoring();
+}
