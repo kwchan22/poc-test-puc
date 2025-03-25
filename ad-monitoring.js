@@ -25,7 +25,6 @@ function runTWCMonitoring() {
     let errMsg = "";
     if (typeof ucTagData !== "undefined") {
       // PUC tag data
-      data.ucTag = ucTagData; // send for now but should remove
       logPayload.prebid = {
         adId: ucTagData.adId,
         uuid: ucTagData.uuid,
@@ -33,7 +32,8 @@ function runTWCMonitoring() {
         winbidid: ucTagData.winbidid,
         hbPb: ucTagData.hbPb,
         env: ucTagData.env,
-        adServerDomain: ucTagData.adServerDomain
+        adServerDomain: ucTagData.adServerDomain,
+        pubUrl: ucTagData.pubUrl
       }
     }
 
@@ -203,7 +203,7 @@ function runTWCMonitoring() {
   }
 
   function captureNetworkRequest(list, observer) {
-    console.log("captureNetworkRequest: ", list);
+    console.log("captureNetworkRequest: ", list?.getEntries());
     list?.getEntries().forEach(function (entry) {
       if (entry.initiatorType.match(/script|img|iframe/)) {
         console.log(`Performance Observer:: Capture network request: ${entry.name} status: ${entry.responseStatus}`, entry);
